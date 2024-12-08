@@ -111,18 +111,13 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	chairLocationID := ulid.Make().String()
-	if _, err := tx.ExecContext(
-		ctx,
-		`INSERT INTO chair_locations (id, chair_id, latitude, longitude) VALUES (?, ?, ?, ?)`,
-		chairLocationID, chair.ID, req.Latitude, req.Longitude,
-	); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO chair_positions (chair_id, latitude, longitude, total_distance) VALUES (?, ?, ?, 0) ON DUPLICATE KEY UPDATE total_distance = total_distance + (ABS(latitude - VALUES(latitude)) + ABS(longitude - VALUES(longitude))), latitude = VALUES(latitude), longitude = VALUES(longitude)`, chair.ID, req.Latitude, req.Longitude); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 
 	location := &ChairLocation{}
-	if err := tx.GetContext(ctx, location, `SELECT * FROM chair_locations WHERE id = ?`, chairLocationID); err != nil {
+	if err := tx.GetContext(ctx, location, `SELECT * FROM chair_positions WHERE chair_id = ?`, chair.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
