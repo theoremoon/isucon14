@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"net/http"
 )
 
@@ -56,22 +55,26 @@ func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := publishRideMatchNotification(ctx, &chairGetNotificationResponseData{
-		RideID: ride.ID,
-		User: simpleUser{
-			ID:   ride.UserID,
-			Name: fmt.Sprintf("%s %s", user.Firstname, user.Lastname),
-		},
-		PickupCoordinate: Coordinate{
-			Latitude:  ride.PickupLatitude,
-			Longitude: ride.PickupLongitude,
-		},
-		DestinationCoordinate: Coordinate{
-			Latitude:  ride.DestinationLatitude,
-			Longitude: ride.DestinationLongitude,
-		},
-		Status: "MATCHING",
-	})
+	tx, err := db.Beginx()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	defer tx.Rollback()
+
+	ride.ChairID = sql.NullString{String: matched.ID, Valid: true}
+	appData, chairData, err := getNotificationInfo(ctx, tx, user, ride)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	err = publishRideUpdateNotification(ctx, user, appData, chairData)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

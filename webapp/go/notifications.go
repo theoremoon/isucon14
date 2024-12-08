@@ -110,10 +110,6 @@ func getNotificationInfo(ctx context.Context, tx *sqlx.Tx, user *User, ride *Rid
 	return data, chairData, nil
 }
 
-func publishRideMatchNotification(ctx context.Context, chairData *chairGetNotificationResponseData) error {
-	return nil
-}
-
 func publishRideUpdateNotification(ctx context.Context, user *User, appData *appGetNotificationResponseData, chairData *chairGetNotificationResponseData) error {
 	buf, err := json.Marshal(appData)
 	if err != nil {

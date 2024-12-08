@@ -212,7 +212,7 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 	if err := tx.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id = ? ORDER BY updated_at DESC LIMIT 1`, chair.ID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeJSON(w, http.StatusOK, &chairGetNotificationResponse{
-				RetryAfterMs: 10000,
+				RetryAfterMs: 300,
 			})
 			return
 		}
@@ -241,7 +241,7 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 
 	ch := pubsub.Channel()
 
-	t := time.NewTicker(1000 * time.Millisecond)
+	t := time.NewTicker(10000 * time.Millisecond)
 Loop:
 	for {
 		select {
