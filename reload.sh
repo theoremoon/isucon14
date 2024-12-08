@@ -6,13 +6,14 @@ set -eux
 sudo systemctl restart isuride-go.service
 
 # nginx
-# sudo rm -rf /var/log/nginx/access.log
-# sudo mkdir -p /srv/html/alp
+sudo rm -rf /var/log/nginx/access.log
+sudo mkdir -p /srv/html/alp
 sudo rsync --chown root:root -avz /home/isucon/nginx/isuride.conf /etc/nginx/sites-available/isuride.conf
+sudo rsync --chown root:root -avz /home/isucon/nginx/nginx.conf /etc/nginx/nginx.conf
 sudo systemctl restart nginx
 
 # mysql
-# sudo rm -rf /var/log/mysql/mysql-slow.log
-# sudo mkdir -p /srv/html/pt-query-digest
-# sudo rsync --chown root:root -avz /home/isucon/mysql.conf.d /etc/mysql/
-# sudo systemctl restart mysql
+sudo rm -rf /var/log/mysql/mysql-slow.log
+sudo mkdir -p /srv/html/pt-query-digest
+sudo rsync --chown root:root -avz /home/isucon/mysql.conf.d /etc/mysql/
+sudo systemctl restart mysql

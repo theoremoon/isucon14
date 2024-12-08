@@ -241,7 +241,7 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 
 	ch := pubsub.Channel()
 
-	t := time.NewTicker(10000 * time.Millisecond)
+	t := time.NewTicker(5000 * time.Millisecond)
 Loop:
 	for {
 		select {

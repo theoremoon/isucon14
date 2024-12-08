@@ -1,0 +1,10 @@
+sort: sum
+reverse: true
+format: html
+matching_groups: 
+  - '^/api/app/rides/(.+)/evaluation'
+  - '^/api/chair/rides/(.+)/status'
+json: {}
+ltsv: {}
+regexp: {}
+pcap: {}
