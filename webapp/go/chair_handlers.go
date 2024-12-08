@@ -241,7 +241,7 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 
 	ch := pubsub.Channel()
 
-	t := time.NewTicker(5000 * time.Millisecond)
+	t := time.NewTicker(500 * time.Millisecond)
 Loop:
 	for {
 		select {
@@ -288,8 +288,15 @@ func getLatestRideStatusForNotifications(ctx context.Context, tx *sqlx.Tx, chair
 	if err := tx.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id = ? ORDER BY updated_at DESC LIMIT 1`, chairID); err != nil {
 		return nil, err
 	}
-	if err := tx.GetContext(ctx, &yetSentRideStatus, `SELECT * FROM ride_statuses WHERE ride_id = ? ORDER BY created_at ASC LIMIT 1`, ride.ID); err != nil {
-		return nil, err
+	if err := tx.GetContext(ctx, &yetSentRideStatus, `SELECT * FROM ride_statuses WHERE ride_id = ? AND chair_sent_at IS NULL ORDER BY created_at ASC LIMIT 1`, ride.ID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			status, err = getLatestRideStatus(ctx, tx, ride.ID)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	} else {
 		status = yetSentRideStatus.Status
 	}
