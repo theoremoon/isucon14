@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -432,6 +433,20 @@ func appPostRides(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err = publishNewRideNotification(ctx, user.ID, &newRideNotificationPayload{
+		RideID:                rideID,
+		PickupCoordinate:      *req.PickupCoordinate,
+		DestinationCoordinate: *req.DestinationCoordinate,
+		Fare:                  fare,
+		Status:                "MATCHING",
+		CreatedAt:             ride.CreatedAt.UnixMilli(),
+		UpdateAt:              ride.UpdatedAt.UnixMilli(),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
 	writeJSON(w, http.StatusAccepted, &appPostRidesResponse{
 		RideID: rideID,
 		Fare:   fare,
@@ -508,6 +523,8 @@ type appPostRideEvaluationResponse struct {
 func appPostRideEvaluatation(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rideID := r.PathValue("ride_id")
+
+	user := ctx.Value("user").(*User)
 
 	req := &appPostRideEvaluationRequest{}
 	if err := bindJSON(r, req); err != nil {
@@ -620,7 +637,18 @@ func appPostRideEvaluatation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	appData, chairData, err := getNotificationInfo(ctx, tx, user, ride)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	if err := publishRideUpdateNotification(ctx, user, appData, chairData); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -681,83 +709,34 @@ func appGetNotification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	yetSentRideStatus := RideStatus{}
-	status := ""
-	if err := tx.GetContext(ctx, &yetSentRideStatus, `SELECT * FROM ride_statuses WHERE ride_id = ? AND app_sent_at IS NULL ORDER BY created_at ASC LIMIT 1`, ride.ID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			status, err = getLatestRideStatus(ctx, tx, ride.ID)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err)
-				return
-			}
-		} else {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-	} else {
-		status = yetSentRideStatus.Status
-	}
+	// SSE でpolling
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 
-	fare, err := calculateDiscountedFare(ctx, tx, user.ID, ride, ride.PickupLatitude, ride.PickupLongitude, ride.DestinationLatitude, ride.DestinationLongitude)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+	f, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, errors.New("expected http.ResponseWriter to be an http.Flusher"))
 		return
 	}
 
-	response := &appGetNotificationResponse{
-		Data: &appGetNotificationResponseData{
-			RideID: ride.ID,
-			PickupCoordinate: Coordinate{
-				Latitude:  ride.PickupLatitude,
-				Longitude: ride.PickupLongitude,
-			},
-			DestinationCoordinate: Coordinate{
-				Latitude:  ride.DestinationLatitude,
-				Longitude: ride.DestinationLongitude,
-			},
-			Fare:      fare,
-			Status:    status,
-			CreatedAt: ride.CreatedAt.UnixMilli(),
-			UpdateAt:  ride.UpdatedAt.UnixMilli(),
-		},
-		RetryAfterMs: 30,
-	}
+	pubsub := redisClient.Subscribe(ctx, makeUserChannelName(user.ID))
+	defer pubsub.Close()
 
-	if ride.ChairID.Valid {
-		chair := &Chair{}
-		if err := tx.GetContext(ctx, chair, `SELECT * FROM chairs WHERE id = ?`, ride.ChairID); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
+	ch := pubsub.Channel()
+Loop:
+	for {
+		select {
+		case <-ctx.Done():
+			writeError(w, http.StatusInternalServerError, ctx.Err())
+			break Loop
 
-		stats, err := getChairStats(ctx, tx, chair.ID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-
-		response.Data.Chair = &appGetNotificationResponseChair{
-			ID:    chair.ID,
-			Name:  chair.Name,
-			Model: chair.Model,
-			Stats: stats,
+		case msg := <-ch:
+			io.WriteString(w, "data: "+msg.Payload+"\n\n")
+			f.Flush()
 		}
 	}
-
-	if yetSentRideStatus.ID != "" {
-		_, err := tx.ExecContext(ctx, `UPDATE ride_statuses SET app_sent_at = CURRENT_TIMESTAMP(6) WHERE id = ?`, yetSentRideStatus.ID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, response)
 }
 
 func getChairStats(ctx context.Context, tx *sqlx.Tx, chairID string) (appGetNotificationResponseChairStats, error) {

@@ -154,6 +154,19 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+
+		user := &User{}
+		err = db.GetContext(ctx, user, "SELECT * FROM users WHERE id = ?", ride.UserID)
+
+		appData, chairData, err := getNotificationInfo(ctx, tx, user, ride)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if err := publishRideUpdateNotification(ctx, user, appData, chairData); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -223,6 +236,11 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pubsub := redisClient.Subscribe(ctx, makeChairChannelName(chair.ID))
+	defer pubsub.Close()
+
+	ch := pubsub.Channel()
+
 	t := time.NewTicker(1000 * time.Millisecond)
 Loop:
 	for {
@@ -253,6 +271,10 @@ Loop:
 				return
 			}
 			io.WriteString(w, "data: "+string(buf)+"\n\n")
+			f.Flush()
+
+		case msg := <-ch:
+			io.WriteString(w, "data: "+msg.Payload+"\n\n")
 			f.Flush()
 		}
 	}
@@ -367,7 +389,24 @@ func chairPostRideStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("invalid status"))
 	}
 
+	user := &User{}
+	err = tx.GetContext(ctx, user, "SELECT * FROM users WHERE id = ?", ride.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	appData, chairData, err := getNotificationInfo(ctx, tx, user, ride)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	if err := publishRideUpdateNotification(ctx, user, appData, chairData); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}

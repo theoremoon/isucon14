@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 )
 
@@ -45,6 +46,33 @@ func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := db.ExecContext(ctx, "UPDATE rides SET chair_id = ? WHERE id = ?", matched.ID, ride.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	user := &User{}
+	if err := db.GetContext(ctx, user, "SELECT * FROM users WHERE id = ?", ride.UserID); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	err := publishRideMatchNotification(ctx, &chairGetNotificationResponseData{
+		RideID: ride.ID,
+		User: simpleUser{
+			ID:   ride.UserID,
+			Name: fmt.Sprintf("%s %s", user.Firstname, user.Lastname),
+		},
+		PickupCoordinate: Coordinate{
+			Latitude:  ride.PickupLatitude,
+			Longitude: ride.PickupLongitude,
+		},
+		DestinationCoordinate: Coordinate{
+			Latitude:  ride.DestinationLatitude,
+			Longitude: ride.DestinationLongitude,
+		},
+		Status: "MATCHING",
+	})
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}

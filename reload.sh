@@ -2,7 +2,7 @@
 
 set -eux
 
-(cd /home/isucon/webapp/go; /home/isucon/local/golang/bin/go build -o isuride)
+(cd /home/isucon/webapp/go; /home/isucon/local/golang/bin/go mod tidy; /home/isucon/local/golang/bin/go build -o isuride)
 sudo systemctl restart isuride-go.service
 
 # nginx
